@@ -5,6 +5,8 @@ import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 
+import androidx.annotation.Nullable;
+
 import tiiehenry.viewcontroller.IGodModeManager;
 import tiiehenry.viewcontroller.IObserver;
 import tiiehenry.viewcontroller.rule.ActRules;
@@ -22,13 +24,22 @@ public final class GodModeManager {
     }
 
     public static GodModeManager getDefault() {
+        return getDefault(null);
+    }
+
+    /**
+     * @param packageName 目标应用包名。在沙盒里 binder 中继不可用（见 LocalGodModeManager），
+     *                    靠包名去宿主文件里读本地规则；传 null 只走系统服务路径。
+     */
+    public static GodModeManager getDefault(@Nullable String packageName) {
         synchronized (GodModeManager.class) {
             if (instance == null) {
                 IBinder service = XServiceManager.getService("godmode");
                 if (service != null) {
                     instance = new GodModeManager(IGodModeManager.Stub.asInterface(service));
                 } else {
-                    instance = new GodModeManager(new IGodModeManager.Default());
+                    LocalGodModeManager local = LocalGodModeManager.load(packageName);
+                    instance = new GodModeManager(local != null ? local : new IGodModeManager.Default());
                 }
             }
             return instance;

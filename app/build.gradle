@@ -1,10 +1,19 @@
 apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
 
 android {
+    namespace 'tiiehenry.viewcontroller'
     compileSdkVersion 31
+    buildFeatures {
+        buildConfig true
+        aidl true
+    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
     }
     defaultConfig {
         applicationId "tiiehenry.viewcontroller"
@@ -16,6 +25,20 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
     productFlavors {
+    }
+
+    // 上游残缺的第三方库源码拷贝（缺 tiiehenry.android.ui.dialogs.api 等整棵子树），
+    // 本模块代码、AndroidManifest、proguard 全部不引用，已整体移到 src/deprecated/java，
+    // 留在源码树外不参与编译。AGP 8 的 sourceSets exclude 对 Kotlin sourceSet 不生效，
+    // 物理移出是唯一可靠手段。
+    sourceSets {
+        main {
+            java {
+                exclude 'com/lxj/androidktx/**'
+                exclude 'tiiehenry/android/ui/dialogs/**'
+                exclude 'tiiehenry/android/view/loadingview/**'
+            }
+        }
     }
 }
 android.applicationVariants.all { variant ->

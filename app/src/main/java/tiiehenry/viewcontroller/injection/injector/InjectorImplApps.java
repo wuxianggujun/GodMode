@@ -24,6 +24,7 @@ import tiiehenry.viewcontroller.injection.hook.ActivityLifecycleHook;
 import tiiehenry.viewcontroller.injection.hook.DispatchKeyEventHook;
 import tiiehenry.viewcontroller.injection.hook.DisplayPropertiesHook;
 import tiiehenry.viewcontroller.injection.hook.EventHandlerHook;
+import tiiehenry.viewcontroller.injection.hook.LocationProbeHook;
 import tiiehenry.viewcontroller.injection.hook.SystemPropertiesHook;
 import tiiehenry.viewcontroller.injection.util.Logger;
 import tiiehenry.viewcontroller.injection.util.PackageManagerUtils;
@@ -78,7 +79,12 @@ public class InjectorImplApps extends InjectorImpl {
         } else if (Build.VERSION.SDK_INT < 29) {
             SystemPropertiesHook systemPropertiesHook = new SystemPropertiesHook();
             editModeProp.addOnPropertyChangeListener(systemPropertiesHook);
-            XposedHelpers.findAndHookMethod("android.os.SystemProperties", ClassLoader.getSystemClassLoader(), "native_get_boolean", String.class, boolean.class, systemPropertiesHook);
+            // 崩在 origin 调用上跟 native 与否无关：LSPHooker.callback 对静态方法把参数
+            // 数组整个丢掉（LSPlant 不给静态方法放 receiver 占位，args 就是纯参数），
+            // 于是 SystemProperties.getBoolean(String,boolean) 的 origin 调用变成 0 参，
+            // IllegalArgumentException: expected 2, got 0。真正的修在 LSPHooker 里，
+            // 这里保持用 getBoolean 只是因为它是普通 Java 方法，反射调 origin 最稳。
+            XposedHelpers.findAndHookMethod("android.os.SystemProperties", ClassLoader.getSystemClassLoader(), "getBoolean", String.class, boolean.class, systemPropertiesHook);
         } else {
             DisplayPropertiesHook displayPropertiesHook = new DisplayPropertiesHook();
             editModeProp.addOnPropertyChangeListener(displayPropertiesHook);
@@ -111,6 +117,8 @@ public class InjectorImplApps extends InjectorImpl {
         XposedHelpers.findAndHookMethod(Activity.class, "onPostResume", lifecycleHook);
         XposedHelpers.findAndHookMethod(Activity.class, "onDestroy", lifecycleHook);
 
+        new LocationProbeHook().register(loadPackageParam.classLoader);
+
 
         hookDebugLayout();
 
@@ -130,7 +138,7 @@ public class InjectorImplApps extends InjectorImpl {
 
     @Override
     public void handleLoadPackage() {
-        GodModeManager gmManager = GodModeManager.getDefault();
+        GodModeManager gmManager = GodModeManager.getDefault(getPackageName());
         XposedHelpers.findAndHookMethod(Activity.class, "onCreate", Bundle.class, new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam param) throws Throwable {

@@ -12,7 +12,6 @@ import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.HapticFeedbackConstants;
-import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -35,8 +34,6 @@ import tiiehenry.viewcontroller.rule.ViewRule;
 import tiiehenry.viewcontroller.util.Preconditions;
 
 import java.lang.ref.WeakReference;
-import java.util.ArrayList;
-import java.util.List;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedHelpers;
@@ -48,7 +45,6 @@ import de.robv.android.xposed.XposedHelpers;
 public final class EventHandlerHook extends XC_MethodHook implements Property.OnPropertyChangeListener<Boolean> {
 
     private static final int MARK_COLOR = Color.argb(150, 139, 195, 75);
-    private static final int OVERLAY_COLOR = Color.argb(150, 255, 0, 0);
 
     private boolean mIsInEditMode;
     private int mSkipLogQuota = 3;
@@ -65,10 +61,6 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
     private volatile boolean mMultiPointLock;
     private volatile boolean mDragging;
 
-    private final List<WeakReference<View>> mViewNodes = new ArrayList<>();
-    private int mCurrentViewIndex = 0;
-    private volatile boolean mKeySelecting;
-
     private final int[] mCancelViewLocation = new int[2];
 
     @Override
@@ -82,19 +74,10 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
             return;
         }
         String methodName = param.method.getName();
-        if ("dispatchKeyEvent".equals(methodName)) {
-            if (!mDragging) {
-                Activity activity = (Activity) param.thisObject;
-                KeyEvent event = (KeyEvent) param.args[0];
-                param.setResult(dispatchKeyEvent(activity, event));
-            }
-        } else if ("dispatchTouchEvent".equals(methodName)) {
+        if ("dispatchTouchEvent".equals(methodName)) {
             View view = (View) param.thisObject;
             MotionEvent event = (MotionEvent) param.args[0];
-            if (mKeySelecting) {
-                View selectedView = mViewNodes.get(mCurrentViewIndex).get();
-                param.setResult(dispatchTouchEvent(selectedView, event));
-            } else if (!TAG_GM_CMP.equals(view.getTag())) {
+            if (!TAG_GM_CMP.equals(view.getTag())) {
                 param.setResult(dispatchTouchEvent(view, event));
             }
         }
@@ -163,35 +146,6 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
         return true;
     }
 
-    private boolean dispatchKeyEvent(final Activity activity, KeyEvent keyEvent) {
-        Logger.d(TAG, keyEvent.toString());
-        int action = keyEvent.getAction();
-        int keyCode = keyEvent.getKeyCode();
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            if (!mKeySelecting && action == KeyEvent.ACTION_DOWN && keyEvent.getRepeatCount() == 0) {
-                //build view tree
-                ViewGroup decorView = (ViewGroup) activity.getWindow().getDecorView();
-                List<WeakReference<View>> viewNodes = ViewHelper.buildViewNodes(decorView);
-                mViewNodes.clear();
-                mViewNodes.addAll(viewNodes);
-                mCurrentViewIndex = 0;
-                mMaskView = MaskView.makeMaskView(activity);
-                mMaskView.setMaskOverlay(OVERLAY_COLOR);
-                View view = mViewNodes.get(mCurrentViewIndex).get();
-                mMaskView.updateOverlayBounds(ViewHelper.getLocationInWindow(view));
-                mMaskView.attachToContainer(decorView);
-                mKeySelecting = true;
-            } else if (action == KeyEvent.ACTION_DOWN) {
-                mCurrentViewIndex = (keyCode == KeyEvent.KEYCODE_VOLUME_UP)
-                        ? Math.max(--mCurrentViewIndex, 0) : Math.min(++mCurrentViewIndex, mViewNodes.size() - 1);
-                View view = mViewNodes.get(mCurrentViewIndex).get();
-                mMaskView.updateOverlayBounds(ViewHelper.getLocationInWindow(view));
-            }
-            Logger.d(TAG, "node size=" + mViewNodes.size() + " index=" + mCurrentViewIndex + " key selecting=" + mKeySelecting);
-        }
-        return true;
-    }
-
     private boolean isAttachedToActivity(View v) {
         Object viewRootImpl = ViewFinder.findViewRootImplByChildView(v.getParent());
         if (viewRootImpl == null) return false;
@@ -209,17 +163,11 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
             mCancelView = new CancelView(activity);
             mCancelView.attachToContainer(container);
 
-            if (mKeySelecting && mMaskView != null) {
-                mMaskView.setMaskOverlay(v);
-                mMaskView.setMarkColor(MARK_COLOR);
-                mMaskView.updateOverlayBounds(ViewHelper.getLocationInWindow(v));
-            } else {
-                mMaskView = MaskView.makeMaskView(activity);
-                mMaskView.setMaskOverlay(v);
-                mMaskView.setMarkColor(MARK_COLOR);
-                mMaskView.updateOverlayBounds(ViewHelper.getLocationInWindow(v));
-                mMaskView.attachToContainer(container);
-            }
+            mMaskView = MaskView.makeMaskView(activity);
+            mMaskView.setMaskOverlay(v);
+            mMaskView.setMarkColor(MARK_COLOR);
+            mMaskView.updateOverlayBounds(ViewHelper.getLocationInWindow(v));
+            mMaskView.attachToContainer(container);
 
             mSnapshot = ViewExtractor.snapshotView(ViewFinder.findTopParentViewByChildView(v));
             mViewRule = ViewExtractor.makeRule(v);
@@ -258,7 +206,6 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
                 mMaskView = null;
                 mCancelView = null;
                 mViewRule = null;
-                mKeySelecting = false;
             }
         } else {
             ViewGroup container = (ViewGroup) activity.getWindow().getDecorView();
@@ -292,7 +239,6 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
                         mMaskView = null;
                         mCancelView = null;
                         mViewRule = null;
-                        mKeySelecting = false;
                     }
                 }
             });
@@ -316,9 +262,6 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
     @Override
     public void onPropertyChange(Boolean enable) {
         mIsInEditMode = enable;
-        if (!enable) {
-            mKeySelecting = false;
-        }
     }
 
     private class CheckForLongPress implements Runnable {

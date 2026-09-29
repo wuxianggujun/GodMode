@@ -67,6 +67,11 @@ public class GmLayoutInflater implements LayoutInflater.Factory2 {
     @Nullable
     @Override
     public View onCreateView(@Nullable View parent, @NonNull String name, @NonNull Context context, @NonNull AttributeSet attrs) {
+        // XML 里的简单名（FrameLayout/ImageButton…）解析是 LayoutInflater 前缀表（android.widget. 等）的职责，
+        // 这里 forName 只会抛 ClassNotFoundException 刷屏。自定义控件必然以全限定名进来，才需要反射构造。
+        if (name.indexOf('.') < 0) {
+            return null;
+        }
         try {
             return (View) Class.forName(name).getConstructor(Context.class, AttributeSet.class).newInstance(context, attrs);
         } catch (IllegalAccessException e) {
@@ -86,6 +91,9 @@ public class GmLayoutInflater implements LayoutInflater.Factory2 {
     @Nullable
     @Override
     public View onCreateView(@NonNull String name, @NonNull Context context, @NonNull AttributeSet attrs) {
+        if (name.indexOf('.') < 0) {
+            return null;
+        }
         try {
             return (View) Class.forName(name).getConstructor(Context.class, AttributeSet.class).newInstance(context, attrs);
         } catch (IllegalAccessException e) {

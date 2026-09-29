@@ -105,7 +105,8 @@ public final class ActivityLifecycleHook extends XC_MethodHook implements Proper
             List<ViewRule> rules = entry.getValue();
             Activity activity=getActivityByName(entry.getKey());
             if (activity != null) {
-                ViewController.applyRuleBatch(activity, rules);
+                // 规则变更是低频路径，需要立即看到完整日志，跳过 ViewController 的限速。
+                ViewController.applyRuleBatch(activity, rules, true);
             }
         }
 

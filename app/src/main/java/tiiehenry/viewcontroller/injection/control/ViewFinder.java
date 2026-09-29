@@ -17,8 +17,8 @@ import tiiehenry.viewcontroller.rule.ViewRule;
 import tiiehenry.viewcontroller.util.Preconditions;
 
 public class ViewFinder {
-   private static View findView(View view, ViewRule rule, boolean strictMode) {
-       if (isViewMatched(view, rule, strictMode)) {
+   private static View findView(View view, ViewRule rule, boolean strictMode, boolean logDetail) {
+       if (isViewMatched(view, rule, strictMode, logDetail)) {
            return view;
        }
        if (view instanceof ViewGroup) {
@@ -26,7 +26,7 @@ public class ViewFinder {
            final int N = viewGroup.getChildCount();
            for (int i = 0; i < N; i++) {
                View v = viewGroup.getChildAt(i);
-               if (findView(v, rule, strictMode) != null) {
+               if (findView(v, rule, strictMode, logDetail) != null) {
                    return v;
                }
            }
@@ -34,9 +34,9 @@ public class ViewFinder {
        return null;
    }
 
-   private static ArrayList<View> findViewList(View view, ViewRule rule, boolean strictMode) {
+   private static ArrayList<View> findViewList(View view, ViewRule rule, boolean strictMode, boolean logDetail) {
        ArrayList<View> list = new ArrayList<>();
-       if (isViewMatched(view, rule, strictMode)) {
+       if (isViewMatched(view, rule, strictMode, logDetail)) {
            list.add(view);
        }
        if (view instanceof ViewGroup) {
@@ -44,44 +44,52 @@ public class ViewFinder {
            final int N = viewGroup.getChildCount();
            for (int i = 0; i < N; i++) {
                View v = viewGroup.getChildAt(i);
-               ArrayList<View> childList = findViewList(v, rule, strictMode);
+               ArrayList<View> childList = findViewList(v, rule, strictMode, logDetail);
                list.addAll(childList);
            }
        }
        return list;
    }
 
-   public static View findViewBestMatch(Activity activity, ViewRule rule, int versionCode) {
+   public static View findViewBestMatch(Activity activity, ViewRule rule, int versionCode, boolean logDetail) {
        // if the rule version and the application version are the same, use strict mode.
        boolean strictMode = versionCode == rule.matchVersionCode;
 
        if (!TextUtils.isEmpty(rule.description)) {
-           Logger.i(TAG, String.format("strict mode %b, match view by description", strictMode));
-           View view = matchView(findViewByDescription(activity.getWindow().getDecorView(), rule.description), rule, strictMode);
+           if (logDetail) {
+               Logger.i(TAG, String.format("strict mode %b, match view by description", strictMode));
+           }
+           View view = matchView(findViewByDescription(activity.getWindow().getDecorView(), rule.description), rule, strictMode, logDetail);
            if (view != null) {
                return view;
            }
        }
        if (!TextUtils.isEmpty(rule.text)) {
-           Logger.i(TAG, String.format("strict mode %b, match view by text", strictMode));
-           View view = matchView(findViewByText(activity.getWindow().getDecorView(), rule.text), rule, strictMode);
+           if (logDetail) {
+               Logger.i(TAG, String.format("strict mode %b, match view by text", strictMode));
+           }
+           View view = matchView(findViewByText(activity.getWindow().getDecorView(), rule.text), rule, strictMode, logDetail);
            if (view != null) {
                return view;
            }
        }
        if (!TextUtils.isEmpty(rule.resourceName)) {
-           Logger.i(TAG, String.format("strict mode %b, match view by resource name", strictMode));
-           View view = matchView(activity.findViewById(rule.getViewId(activity.getResources())), rule, strictMode);
+           if (logDetail) {
+               Logger.i(TAG, String.format("strict mode %b, match view by resource name", strictMode));
+           }
+           View view = matchView(activity.findViewById(rule.getViewId(activity.getResources())), rule, strictMode, logDetail);
            if (view != null) {
                return view;
            }
        }
-       Logger.i(TAG, String.format("strict mode %b, match view by depth", strictMode));
-       View view = matchView(findViewByDepth(activity, rule.depth), rule, strictMode);
+       if (logDetail) {
+           Logger.i(TAG, String.format("strict mode %b, match view by depth", strictMode));
+       }
+       View view = matchView(findViewByDepth(activity, rule.depth), rule, strictMode, logDetail);
        return view;
    }
 
-   private static boolean isViewMatched(View view, ViewRule rule, boolean strictMode) {
+   private static boolean isViewMatched(View view, ViewRule rule, boolean strictMode, boolean logDetail) {
        try {
            String resourceName = null;
            try {
@@ -91,10 +99,12 @@ public class ViewFinder {
            String text = (view instanceof TextView) ? Preconditions.optionDefault(((TextView) view).getText(), "").toString() : "";
            String description = Preconditions.optionDefault(view.getContentDescription(), "").toString();
            String viewClass = view.getClass().getName();
-           Logger.i(TAG, String.format("view res name:%s matched:%b", resourceName, TextUtils.equals(resourceName, rule.resourceName)));
-           Logger.i(TAG, String.format("view text:%s matched:%b", text, TextUtils.equals(text, rule.text)));
-           Logger.i(TAG, String.format("view description:%s matched:%b", description, TextUtils.equals(description, rule.description)));
-           Logger.i(TAG, String.format("view class:%s matched:%b", viewClass, TextUtils.equals(viewClass, rule.viewClass)));
+           if (logDetail) {
+               Logger.i(TAG, String.format("view res name:%s matched:%b", resourceName, TextUtils.equals(resourceName, rule.resourceName)));
+               Logger.i(TAG, String.format("view text:%s matched:%b", text, TextUtils.equals(text, rule.text)));
+               Logger.i(TAG, String.format("view description:%s matched:%b", description, TextUtils.equals(description, rule.description)));
+               Logger.i(TAG, String.format("view class:%s matched:%b", viewClass, TextUtils.equals(viewClass, rule.viewClass)));
+           }
            if (strictMode) {
                return TextUtils.equals(resourceName, rule.resourceName)
                        && TextUtils.equals(text, rule.text)
@@ -113,7 +123,7 @@ public class ViewFinder {
        return false;
    }
 
-   private static View matchView(View view, ViewRule rule, boolean strictMode) {
+   private static View matchView(View view, ViewRule rule, boolean strictMode, boolean logDetail) {
        try {
            Preconditions.checkNotNull(view, "view can't be null");
            Preconditions.checkNotNull(rule, "rule can't be null");
@@ -125,10 +135,12 @@ public class ViewFinder {
            String text = (view instanceof TextView) ? Preconditions.optionDefault(((TextView) view).getText(), "").toString() : "";
            String description = Preconditions.optionDefault(view.getContentDescription(), "").toString();
            String viewClass = view.getClass().getName();
-           Logger.i(TAG, String.format("view res name:%s matched:%b", resourceName, TextUtils.equals(resourceName, rule.resourceName)));
-           Logger.i(TAG, String.format("view text:%s matched:%b", text, TextUtils.equals(text, rule.text)));
-           Logger.i(TAG, String.format("view description:%s matched:%b", description, TextUtils.equals(description, rule.description)));
-           Logger.i(TAG, String.format("view class:%s matched:%b", viewClass, TextUtils.equals(viewClass, rule.viewClass)));
+           if (logDetail) {
+               Logger.i(TAG, String.format("view res name:%s matched:%b", resourceName, TextUtils.equals(resourceName, rule.resourceName)));
+               Logger.i(TAG, String.format("view text:%s matched:%b", text, TextUtils.equals(text, rule.text)));
+               Logger.i(TAG, String.format("view description:%s matched:%b", description, TextUtils.equals(description, rule.description)));
+               Logger.i(TAG, String.format("view class:%s matched:%b", viewClass, TextUtils.equals(viewClass, rule.viewClass)));
+           }
            if (strictMode) {
                return TextUtils.equals(resourceName, rule.resourceName)
                        && TextUtils.equals(text, rule.text)

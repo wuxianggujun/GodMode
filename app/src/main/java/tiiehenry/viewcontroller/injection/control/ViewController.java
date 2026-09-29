@@ -5,6 +5,7 @@ import static tiiehenry.viewcontroller.GodModeApplication.TAG;
 import android.app.Activity;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.os.SystemClock;
 import android.util.Pair;
 import android.util.SparseArray;
 import android.view.View;
@@ -19,6 +20,7 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.WeakHashMap;
 
 /**
  */
@@ -26,6 +28,30 @@ import java.util.Locale;
 public final class ViewController {
 
     private final static SparseArray<Pair<WeakReference<View>, ViewProperty>> blockedViewCache = new SparseArray<>();
+
+    // 版本号在一次运行里不会变，每帧反射 BuildConfig 太贵；按 activity 缓存。
+    private final static WeakHashMap<Activity, Integer> sVersionCodeCache = new WeakHashMap<>();
+
+    // 布局每帧都触发 onGlobalLayout（宿主 Compose 自身逐帧 invalidation），
+    // 批次本身必须每帧跑（目标 app 会把视图改回去），但日志不能每帧刷 logd。
+    private static final long BATCH_LOG_THROTTLE_MS = 500L;
+    private static long sLastBatchLogTime;
+
+    private static int getVersionCodeCached(Activity activity) {
+        synchronized (sVersionCodeCache) {
+            Integer cached = sVersionCodeCache.get(activity);
+            if (cached != null && cached > 0) {
+                return cached;
+            }
+        }
+        int code = getVersionCode(activity);
+        if (code > 0) {
+            synchronized (sVersionCodeCache) {
+                sVersionCodeCache.put(activity, code);
+            }
+        }
+        return code;
+    }
 
     private static int getVersionCode(Activity activity) {
         boolean strictMode = false;
@@ -45,33 +71,50 @@ public final class ViewController {
     }
 
     public static void applyRuleBatch(Activity activity, List<ViewRule> rules) {
-        int versionCode=getVersionCode(activity);
-        Logger.d(TAG, "[ApplyRuleBatch info start------------------------------------]");
+        applyRuleBatch(activity, rules, false);
+    }
+
+    // logNow=true 跳过限速：规则变更等低频路径需要立刻看到完整日志。
+    public static void applyRuleBatch(Activity activity, List<ViewRule> rules, boolean logNow) {
+        int versionCode = getVersionCodeCached(activity);
+        boolean logDetail = logNow || SystemClock.elapsedRealtime() - sLastBatchLogTime >= BATCH_LOG_THROTTLE_MS;
+        if (logDetail) {
+            sLastBatchLogTime = SystemClock.elapsedRealtime();
+            Logger.d(TAG, "[ApplyRuleBatch info start------------------------------------]");
+        }
         for (ViewRule rule : new ArrayList<>(rules)) {
             if (!rule.enable) {
                 continue;
             }
             try {
-                Logger.d(TAG, "[Apply rule]:" + rule);
+                if (logDetail) {
+                    Logger.d(TAG, "[Apply rule]:" + rule);
+                }
                 int ruleHashCode = rule.hashCode();
                 Pair<WeakReference<View>, ViewProperty> viewInfo = blockedViewCache.get(ruleHashCode);
                 View view = viewInfo != null ? viewInfo.first.get() : null;
                 if (view == null || !view.isAttachedToWindow()) {
                     blockedViewCache.delete(ruleHashCode);
-                    view = ViewFinder.findViewBestMatch(activity, rule,versionCode);
+                    view = ViewFinder.findViewBestMatch(activity, rule, versionCode, logDetail);
                     Preconditions.checkNotNull(view, "apply rule fail not match any view");
                 }
                 boolean blocked = applyRule(view, rule);
-                if (blocked) {
-                    Logger.i(TAG, String.format("[Success] %s#%s has been blocked", activity, view));
-                } else {
-                    Logger.i(TAG, String.format("[Skipped] %s#%s already be blocked", activity, view));
+                if (logDetail) {
+                    if (blocked) {
+                        Logger.i(TAG, String.format("[Success] %s#%s has been blocked", activity, view));
+                    } else {
+                        Logger.i(TAG, String.format("[Skipped] %s#%s already be blocked", activity, view));
+                    }
                 }
             } catch (NullPointerException e) {
-                Logger.w(TAG, String.format("[Failed] %s#%s block failed because %s", activity, rule.viewClass, e.getMessage()));
+                if (logDetail) {
+                    Logger.w(TAG, String.format("[Failed] %s#%s block failed because %s", activity, rule.viewClass, e.getMessage()));
+                }
             }
         }
-        Logger.d(TAG, "[ApplyRuleBatch info end------------------------------------]");
+        if (logDetail) {
+            Logger.d(TAG, "[ApplyRuleBatch info end------------------------------------]");
+        }
     }
 
     private static int getNormalParamPxValue(View v, int value) {
@@ -82,57 +125,44 @@ public final class ViewController {
     }
 
     //    动态使用目标宽高没有改变，是因为在列表中，后面的rule覆盖了前面的rule
-    private static void applyViewParamType(ViewGroup.LayoutParams lp, View v, ViewRule viewRule, ViewProperty viewProperty) {
-        switch (viewRule.targetParamType) {
-            case 0:
-                break;
-            case 1:
-                lp.width = getNormalParamPxValue(v, viewRule.targetWidth);
-//                lp.height = viewProperty.layout_params_height;
-                break;
-            case 2:
-//                lp.width = viewProperty.layout_params_width;
-                lp.height = getNormalParamPxValue(v, viewRule.targetHeight);
-                break;
-            case 3:
-                lp.width = getNormalParamPxValue(v, viewRule.targetWidth);
-                lp.height = getNormalParamPxValue(v, viewRule.targetHeight);
-                break;
+    private static int computeTargetWidth(ViewGroup.LayoutParams lp, View v, ViewRule viewRule, ViewProperty viewProperty) {
+        int width = viewProperty.layout_params_width;
+        if (viewRule.targetParamType == 1 || viewRule.targetParamType == 3) {
+            width = getNormalParamPxValue(v, viewRule.targetWidth);
         }
+        return width;
     }
 
-    private static void applyRuleVisibility(View v, ViewRule viewRule, ViewProperty viewProperty) {
+    private static int computeTargetHeight(ViewGroup.LayoutParams lp, View v, ViewRule viewRule, ViewProperty viewProperty) {
+        int height = viewProperty.layout_params_height;
+        if (viewRule.targetParamType == 2 || viewRule.targetParamType == 3) {
+            height = getNormalParamPxValue(v, viewRule.targetHeight);
+        }
+        return height;
+    }
+
+    private static boolean applyRuleVisibility(View v, ViewRule viewRule, ViewProperty viewProperty) {
         ViewGroup.LayoutParams lp = v.getLayoutParams();
-        switch (viewRule.visibility) {
-            case View.VISIBLE:
-                v.setAlpha(viewRule.getAlphaNormalized());
-                v.setClickable(viewProperty.clickable);
-                if (lp != null) {
-                    lp.width = viewProperty.layout_params_width;
-                    lp.height = viewProperty.layout_params_height;
-                    applyViewParamType(lp, v, viewRule, viewProperty);
-                }
-                break;
-            case View.INVISIBLE:
-                v.setAlpha(viewRule.getAlphaNormalized());
-                v.setClickable(false);
-                if (lp != null) {
-                    lp.width = viewProperty.layout_params_width;
-                    lp.height = viewProperty.layout_params_height;
-                    applyViewParamType(lp, v, viewRule, viewProperty);
-                }
-                break;
-            case View.GONE:
-                v.setAlpha(0f);
-                v.setClickable(false);
-                if (lp != null) {
-                    lp.width = 0;
-                    lp.height = 0;
-                }
-                break;
+        int visibility = viewRule.visibility;
+        float alpha = visibility == View.GONE ? 0f : viewRule.getAlphaNormalized();
+        int targetWidth = lp == null ? 0 : computeTargetWidth(lp, v, viewRule, viewProperty);
+        int targetHeight = lp == null ? 0 : computeTargetHeight(lp, v, viewRule, viewProperty);
+        if (v.getVisibility() == visibility
+                && Float.compare(v.getAlpha(), alpha) == 0
+                && (lp == null || (lp.width == targetWidth && lp.height == targetHeight))) {
+            // 已处于目标状态就什么也别动：requestLayout 会再次触发 OnGlobalLayoutListener，
+            // 形成每帧重跑 applyRuleBatch 的死循环（102k 次/35min 的实测洪水）。
+            return false;
+        }
+        v.setAlpha(alpha);
+        v.setClickable(visibility == View.VISIBLE && viewProperty.clickable);
+        if (lp != null) {
+            lp.width = targetWidth;
+            lp.height = targetHeight;
         }
         v.requestLayout();
-        ViewCompat.setVisibility(v, viewRule.visibility);
+        ViewCompat.setVisibility(v, visibility);
+        return true;
     }
 
     public static boolean applyRule(View v, ViewRule viewRule) {
@@ -153,11 +183,13 @@ public final class ViewController {
             viewProperty = ViewProperty.create(v);
         }
         applyRuleAuto(v, viewRule);
-        applyRuleVisibility(v, viewRule, viewProperty);
-        blockedViewCache.put(ruleHashCode, Pair.create(new WeakReference<>(v), viewProperty));
+        boolean changed = applyRuleVisibility(v, viewRule, viewProperty);
+        if (blockedView != v) {
+            blockedViewCache.put(ruleHashCode, Pair.create(new WeakReference<>(v), viewProperty));
+        }
 //        Logger.d(TAG, String.format(Locale.getDefault(), "apply rule add view cache %d=%s", ruleHashCode, v));
 //        Logger.d(TAG, "blockedViewCache:" + blockedViewCache);
-        return true;
+        return changed;
     }
 
     private static final ArrayList<Integer> clickedViews = new ArrayList<>();
@@ -173,7 +205,7 @@ public final class ViewController {
     }
 
     public static void revokeRuleBatch(Activity activity, List<ViewRule> rules) {
-        int versionCode=getVersionCode(activity);
+        int versionCode=getVersionCodeCached(activity);
         for (ViewRule rule : new ArrayList<>(rules)) {
             if (!rule.enable) {
                 continue;
@@ -186,7 +218,7 @@ public final class ViewController {
                 if (view == null || !view.isAttachedToWindow()) {
                     Logger.w(TAG, "view cache not found");
                     blockedViewCache.delete(ruleHashCode);
-                    view = ViewFinder.findViewBestMatch(activity, rule, versionCode);
+                    view = ViewFinder.findViewBestMatch(activity, rule, versionCode, true);
                     Logger.w(TAG, "find view in activity" + view);
                     Preconditions.checkNotNull(view, "revoke rule fail can't found block view");
                 }

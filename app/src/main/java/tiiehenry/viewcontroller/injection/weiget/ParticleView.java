@@ -65,6 +65,9 @@ public final class ParticleView extends View {
     }
 
     public void drawParticle(Canvas canvas) {
+        if (mParticles == null) {
+            return;
+        }
         for (Particle[] particle : mParticles) {
             for (Particle p : particle) {
                 p.update((Float) mParticleAnimator.getAnimatedValue());
@@ -87,7 +90,7 @@ public final class ParticleView extends View {
                 view.getLocationInWindow(location);
                 Rect rect = new Rect(location[0], location[1], location[0] + view.getMeasuredWidth(), location[1] + view.getMeasuredHeight());
 
-                mParticles = Particle.generateParticles(getCacheBitmapFromView(view), rect);
+                mParticles = generateParticlesFromView(view, rect);
                 mParticleAnimator = ValueAnimator.ofFloat(0.0f, 1.0f);
                 mParticleAnimator.setDuration(duration);
                 mParticleAnimator.addListener(new AnimatorListenerAdapter() {
@@ -115,6 +118,15 @@ public final class ParticleView extends View {
     }
 
     /**
+     * 拿视图缓存生成粒子，拿不到缓存（Compose 自绘视图常如此）时返回 null：
+     * 动画照常跑，onAnimationStart/End 照常回调，只是不画粒子。
+     */
+    private Particle[][] generateParticlesFromView(View view, Rect rect) {
+        Bitmap bitmap = getCacheBitmapFromView(view);
+        return bitmap != null ? Particle.generateParticles(bitmap, rect) : null;
+    }
+
+    /**
      * 获取一个 View 的缓存视图
      *
      * @param view
@@ -123,16 +135,17 @@ public final class ParticleView extends View {
     private Bitmap getCacheBitmapFromView(View view) {
         final boolean drawingCacheEnabled = true;
         view.setDrawingCacheEnabled(drawingCacheEnabled);
-        view.buildDrawingCache(drawingCacheEnabled);
-        final Bitmap drawingCache = view.getDrawingCache();
-        Bitmap bitmap;
-        if (drawingCache != null) {
-            bitmap = Bitmap.createBitmap(drawingCache);
+        try {
+            // buildDrawingCache 会强制软件渲染一次，Compose 的 GraphicsLayerV23 会要求 DisplayListCanvas 直接抛 ClassCastException
+            view.buildDrawingCache(drawingCacheEnabled);
+            final Bitmap drawingCache = view.getDrawingCache();
+            Bitmap bitmap = drawingCache != null ? Bitmap.createBitmap(drawingCache) : null;
             view.setDrawingCacheEnabled(false);
-        } else {
-            bitmap = null;
+            return bitmap;
+        } catch (Throwable t) {
+            view.setDrawingCacheEnabled(false);
+            return null;
         }
-        return bitmap;
     }
 
     public void setDuration(int duration) {

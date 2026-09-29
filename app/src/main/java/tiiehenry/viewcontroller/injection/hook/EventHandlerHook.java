@@ -73,16 +73,6 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
 
     @Override
     protected void beforeHookedMethod(MethodHookParam param) {
-        // TEMP 诊断：确认事件到底进了哪个 view、什么 action、被哪个条件挡住。定位完删掉。
-        String mn = param.method.getName();
-        if ("dispatchTouchEvent".equals(mn)) {
-            Object thiz = param.thisObject;
-            MotionEvent ev = (MotionEvent) param.args[0];
-            Logger.d(TAG, "evt in act=" + ev.getActionMasked()
-                    + " view=" + (thiz == null ? "null" : thiz.getClass().getName())
-                    + " tag=" + (thiz instanceof View ? ((View) thiz).getTag() : "-")
-                    + " edit=" + mIsInEditMode + " dialog=" + hasDialog + " keySel=" + mKeySelecting);
-        }
         if (hasDialog) {
             logSkip("hasDialog");
             return;
@@ -91,7 +81,7 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
             logSkip("not in edit mode");
             return;
         }
-        String methodName = mn;
+        String methodName = param.method.getName();
         if ("dispatchKeyEvent".equals(methodName)) {
             if (!mDragging) {
                 Activity activity = (Activity) param.thisObject;
@@ -312,23 +302,6 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
 
     public void exchangeEditMode() {
         onPropertyChange(!mIsInEditMode);
-    }
-
-    // TEMP 诊断：View.dispatchTouchEvent 拦不住 ViewGroup 的派发（ViewGroup 把它重写了），
-    // 事件在 DecorView→content→ComposeView 这条链上走到哪、被谁吞掉，只有把 ViewGroup 的
-    // 派发也打出来才看得清。纯记录，不改返回值。定位完删掉。
-    public void registerDispatchDiagnostic() {
-        XposedHelpers.findAndHookMethod(ViewGroup.class, "dispatchTouchEvent", MotionEvent.class, new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) {
-                Object thiz = param.thisObject;
-                MotionEvent ev = (MotionEvent) param.args[0];
-                Logger.d(TAG, "evt vg act=" + ev.getActionMasked()
-                        + " view=" + thiz.getClass().getName()
-                        + " tag=" + (thiz instanceof View ? ((View) thiz).getTag() : "-")
-                        + " children=" + ((ViewGroup) thiz).getChildCount());
-            }
-        });
     }
 
     // 编辑开关没开时，hook 进来了但什么都不做，外部完全看不出。前几次摸到手指时报一下原因，

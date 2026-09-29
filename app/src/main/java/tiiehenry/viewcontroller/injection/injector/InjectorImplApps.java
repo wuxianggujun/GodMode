@@ -134,7 +134,6 @@ public class InjectorImplApps extends InjectorImpl {
         dispatchKeyEventHook.setEventHandlerHook(eventHandlerHook);
         //Drag view support
         XposedHelpers.findAndHookMethod(View.class, "dispatchTouchEvent", MotionEvent.class, eventHandlerHook);
-        eventHandlerHook.registerDispatchDiagnostic();
     }
 
     @Override

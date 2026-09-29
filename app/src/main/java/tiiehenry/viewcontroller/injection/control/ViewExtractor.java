@@ -18,10 +18,13 @@ import java.util.Objects;
 
 import de.robv.android.xposed.XposedHelpers;
 import tiiehenry.viewcontroller.BuildConfig;
+import tiiehenry.viewcontroller.injection.util.Logger;
 import tiiehenry.viewcontroller.rule.ViewRule;
 import tiiehenry.viewcontroller.util.DisplayUtils;
 
 public class ViewExtractor {
+
+    private static final String TAG = "ViewExtractor";
     public static int[] getViewHierarchyDepth(View view) {
         int[] depth = new int[0];
         ViewParent parent = view.getParent();
@@ -97,7 +100,13 @@ public class ViewExtractor {
         boolean enable = view.isDrawingCacheEnabled();
         view.setDrawingCacheEnabled(true);
         Bitmap b = view.getDrawingCache();
-        b = b == null ? snapshotViewCompat(view) : Bitmap.createBitmap(b);
+        try {
+            b = b == null ? snapshotViewCompat(view) : Bitmap.createBitmap(b);
+        } catch (Throwable t) {
+            // Compose 一类自绘视图在软件 Canvas 上 draw 会要求 DisplayListCanvas，拿不到预览图也不能影响拦截落盘
+            Logger.w(TAG, "snapshot view fail: " + t.getMessage());
+            b = null;
+        }
         view.setDrawingCacheEnabled(enable);
         return b;
     }

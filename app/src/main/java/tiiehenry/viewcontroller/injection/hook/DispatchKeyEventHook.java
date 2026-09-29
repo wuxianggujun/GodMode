@@ -177,22 +177,34 @@ public final class DispatchKeyEventHook extends XC_MethodHook implements Propert
                         if (view != null) {
                             //hide overlay
                             mMaskView.updateOverlayBounds(new Rect());
-                            final Bitmap snapshot = ViewExtractor.snapshotView(ViewFinder.findTopParentViewByChildView(view));
                             final ViewRule viewRule = ViewExtractor.makeRule(view);
+                            // 先落盘再播动画：Compose 一类自绘视图快照可能抛异常、缓存位图也可能拿不到，
+                            // boom 一旦没跑起来，原先写在 onAnimationEnd 里的 writeRule 就永远不执行，规则存不下来。
+                            Bitmap snapshot = null;
+                            try {
+                                snapshot = ViewExtractor.snapshotView(ViewFinder.findTopParentViewByChildView(view));
+                            } catch (Throwable t) {
+                                Logger.w(TAG, "snapshot view fail, rule saved without preview", t);
+                            }
+                            // 落盘的规则要带最终状态：GONE 在这赋值，onAnimationStart 里只管应用。
+                            viewRule.visibility = View.GONE;
+                            boolean written = GodModeManager.getDefault().writeRule(activity.getPackageName(), viewRule, snapshot);
+                            Logger.d(TAG, "writeRule pkg=" + activity.getPackageName()
+                                    + " vis=" + viewRule.visibility + " snapshot=" + (snapshot != null)
+                                    + " written=" + written);
+                            final Bitmap finalSnapshot = snapshot;
                             final ParticleView particleView = new ParticleView(activity);
                             particleView.setDuration(1000);
                             particleView.attachToContainer(container);
                             particleView.setOnAnimationListener(new ParticleView.OnAnimationListener() {
                                 @Override
                                 public void onAnimationStart(View animView, Animator animation) {
-                                    viewRule.visibility = View.GONE;
                                     ViewController.applyRule(view, viewRule);
                                 }
 
                                 @Override
                                 public void onAnimationEnd(View animView, Animator animation) {
-                                    GodModeManager.getDefault().writeRule(activity.getPackageName(), viewRule, snapshot);
-                                    recycleNullableBitmap(snapshot);
+                                    recycleNullableBitmap(finalSnapshot);
                                     particleView.detachFromContainer();
                                     animateShowNodeSelectorPanel();
                                 }

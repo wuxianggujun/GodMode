@@ -139,10 +139,12 @@ public class InjectorImplApps extends InjectorImpl {
     @Override
     public void handleLoadPackage() {
         GodModeManager gmManager = GodModeManager.getDefault(getPackageName());
+        tiiehenry.viewcontroller.rule.ActRules actRules = gmManager.getRules(getPackageName());
         android.util.Log.d("GodMode", "handleLoadPackage pkg=" + getPackageName()
                 + " editMode=" + gmManager.isInEditMode()
                 + " appDisabled=" + gmManager.isAppDisabled(getPackageName())
-                + " rules=" + gmManager.getRules(getPackageName()).size());
+                + " activities=" + actRules.size()
+                + " rules=" + actRules.ruleCount());
         XposedHelpers.findAndHookMethod(Activity.class, "onCreate", Bundle.class, new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam param) throws Throwable {

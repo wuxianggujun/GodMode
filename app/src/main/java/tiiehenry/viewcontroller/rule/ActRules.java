@@ -23,6 +23,17 @@ public final class ActRules extends HashMap<String, List<ViewRule>> implements P
     public ActRules() {
     }
 
+    // size() 数的是 activityClass 分桶数，不是规则数——日志里要的是规则总数。
+    public int ruleCount() {
+        int count = 0;
+        for (List<ViewRule> rules : this.values()) {
+            if (rules != null) {
+                count += rules.size();
+            }
+        }
+        return count;
+    }
+
     public void enable() {
         enabled = 1;
     }

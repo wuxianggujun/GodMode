@@ -6,7 +6,6 @@ import static tiiehenry.viewcontroller.injection.util.ViewBitmapUtils.recycleNul
 
 import android.animation.Animator;
 import android.app.Activity;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
@@ -52,6 +51,7 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
     private static final int OVERLAY_COLOR = Color.argb(150, 255, 0, 0);
 
     private boolean mIsInEditMode;
+    private int mSkipLogQuota = 3;
     private float mX, mY;
     private Bitmap mSnapshot;
     private ViewRule mViewRule;
@@ -69,13 +69,29 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
     private int mCurrentViewIndex = 0;
     private volatile boolean mKeySelecting;
 
+    private final int[] mCancelViewLocation = new int[2];
+
     @Override
     protected void beforeHookedMethod(MethodHookParam param) {
+        // TEMP 诊断：确认事件到底进了哪个 view、什么 action、被哪个条件挡住。定位完删掉。
+        String mn = param.method.getName();
+        if ("dispatchTouchEvent".equals(mn)) {
+            Object thiz = param.thisObject;
+            MotionEvent ev = (MotionEvent) param.args[0];
+            Logger.d(TAG, "evt in act=" + ev.getActionMasked()
+                    + " view=" + (thiz == null ? "null" : thiz.getClass().getName())
+                    + " tag=" + (thiz instanceof View ? ((View) thiz).getTag() : "-")
+                    + " edit=" + mIsInEditMode + " dialog=" + hasDialog + " keySel=" + mKeySelecting);
+        }
         if (hasDialog) {
+            logSkip("hasDialog");
             return;
         }
-        if (!mIsInEditMode) return;
-        String methodName = param.method.getName();
+        if (!mIsInEditMode) {
+            logSkip("not in edit mode");
+            return;
+        }
+        String methodName = mn;
         if ("dispatchKeyEvent".equals(methodName)) {
             if (!mDragging) {
                 Activity activity = (Activity) param.thisObject;
@@ -126,9 +142,23 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
             float y = event.getY();
             if (mLongClick) {
                 mMaskView.updateOverlayBounds((int) (event.getRawX() - this.mDeltaX), (int) (event.getRawY() - this.mDeltaY), v.getWidth(), v.getHeight());
-                mMaskView.setMarked(mCancelView.getRealBounds().intersect(mMaskView.getRealBounds()));
+                // 撤销判定看手指落点，不看 mask bounds。原写法用 CancelView 与 mask 的 bounds
+                // 求交：Jetpack Compose 的目标 view 是铺满整个 activity 的 ComposeView，mask
+                // bounds 恒为全屏，与顶部撤销条必然相交，于是每条规则都被当成「拖到撤销区」丢掉，
+                // writeRule 永远不执行。
+                // getRealBounds 是 view 坐标系，getRawX/Y 是屏幕坐标系，非全屏窗口下两者差一个
+                // 状态栏高度，得加上 CancelView 在屏幕上的偏移再比。
+                Rect cancelBounds = mCancelView.getRealBounds();
+                mCancelView.getLocationOnScreen(mCancelViewLocation);
+                mMaskView.setMarked(cancelBounds.left + mCancelViewLocation[0] <= (int) event.getRawX()
+                        && (int) event.getRawX() <= cancelBounds.right + mCancelViewLocation[0]
+                        && cancelBounds.top + mCancelViewLocation[1] <= (int) event.getRawY()
+                        && (int) event.getRawY() <= cancelBounds.bottom + mCancelViewLocation[1]);
             }
         } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            Logger.d(TAG, "touch up action=" + action + " view=" + v.getClass().getName()
+                    + " longClick=" + mLongClick + " marked=" + (mMaskView != null && mMaskView.isMarked())
+                    + " hasRule=" + (mViewRule != null));
             ViewParent parent = v.getParent();
             if (parent != null) parent.requestDisallowInterceptTouchEvent(false);
             mHandler.removeCallbacks(mPendingCheckForLongPress);
@@ -204,8 +234,11 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
             mSnapshot = ViewExtractor.snapshotView(ViewFinder.findTopParentViewByChildView(v));
             mViewRule = ViewExtractor.makeRule(v);
             ViewController.applyRule(v, mViewRule);
-        } catch (PackageManager.NameNotFoundException | NullPointerException e) {
-            e.printStackTrace();
+            Logger.d(TAG, "attach mirror done rule=" + mViewRule);
+        } catch (Throwable e) {
+            // 这里挂在 guest 主线程上，任何异常都会把宿主进程拖死，整个应用直接没了。
+            // 原来只 catch 两个异常类型，GmResources 抛 NotFoundException 时直接崩。
+            Logger.e(TAG, "attach mirror view fail", e);
         }
     }
 
@@ -216,6 +249,8 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
         } catch (NullPointerException e) {
             return;
         }
+        Logger.d(TAG, "detach mirror view marked=" + (mMaskView != null && mMaskView.isMarked())
+                + " hasRule=" + (mViewRule != null) + " hasSnapshot=" + (mSnapshot != null));
         if (mCancelView != null) {
             mCancelView.detachFromContainer();
         }
@@ -248,7 +283,11 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
                     if (mViewRule != null) {
                         mViewRule.visibility = View.GONE;
                         ViewController.applyRule(v, mViewRule);
-                        GodModeManager.getDefault().writeRule(v.getContext().getPackageName(), mViewRule, mSnapshot);
+                        boolean written = GodModeManager.getDefault().writeRule(v.getContext().getPackageName(), mViewRule, mSnapshot);
+                        Logger.d(TAG, "writeRule pkg=" + v.getContext().getPackageName()
+                                + " rule=" + mViewRule + " written=" + written);
+                    } else {
+                        Logger.d(TAG, "writeRule skipped: mViewRule null");
                     }
                     recycleNullableBitmap(mSnapshot);
                     mMaskView.detachFromContainer();
@@ -273,6 +312,32 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
 
     public void exchangeEditMode() {
         onPropertyChange(!mIsInEditMode);
+    }
+
+    // TEMP 诊断：View.dispatchTouchEvent 拦不住 ViewGroup 的派发（ViewGroup 把它重写了），
+    // 事件在 DecorView→content→ComposeView 这条链上走到哪、被谁吞掉，只有把 ViewGroup 的
+    // 派发也打出来才看得清。纯记录，不改返回值。定位完删掉。
+    public void registerDispatchDiagnostic() {
+        XposedHelpers.findAndHookMethod(ViewGroup.class, "dispatchTouchEvent", MotionEvent.class, new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                Object thiz = param.thisObject;
+                MotionEvent ev = (MotionEvent) param.args[0];
+                Logger.d(TAG, "evt vg act=" + ev.getActionMasked()
+                        + " view=" + thiz.getClass().getName()
+                        + " tag=" + (thiz instanceof View ? ((View) thiz).getTag() : "-")
+                        + " children=" + ((ViewGroup) thiz).getChildCount());
+            }
+        });
+    }
+
+    // 编辑开关没开时，hook 进来了但什么都不做，外部完全看不出。前几次摸到手指时报一下原因，
+    // editMode/hasDialog 哪个把事件挡住了，一眼就能定位。配额用完就闭嘴，不和 GPS 探针一样刷屏。
+    private void logSkip(String reason) {
+        if (mSkipLogQuota > 0) {
+            mSkipLogQuota--;
+            Logger.d(TAG, "touch skipped reason=" + reason + " editMode=" + mIsInEditMode);
+        }
     }
 
     @Override

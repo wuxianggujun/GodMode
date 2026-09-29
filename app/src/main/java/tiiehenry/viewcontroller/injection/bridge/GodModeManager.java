@@ -35,10 +35,13 @@ public final class GodModeManager {
         synchronized (GodModeManager.class) {
             if (instance == null) {
                 IBinder service = XServiceManager.getService("godmode");
+                android.util.Log.d("GodMode", "getDefault pkg=" + packageName
+                        + " xservice=" + service);
                 if (service != null) {
                     instance = new GodModeManager(IGodModeManager.Stub.asInterface(service));
                 } else {
                     LocalGodModeManager local = LocalGodModeManager.load(packageName);
+                    android.util.Log.d("GodMode", "getDefault local=" + local);
                     instance = new GodModeManager(local != null ? local : new IGodModeManager.Default());
                 }
             }

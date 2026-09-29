@@ -10,6 +10,7 @@ import android.util.Log;
 
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -33,13 +34,23 @@ public final class LocationProbeHook {
 
     private static final String SUB_TAG = "LocProbe";
 
+    // minTime=0/minDistance=0 的 requestLocationUpdates 在模拟器上是 ~500 次/秒的持续推送，
+    // 原来每条都打日志，日志本身把 guest 主线程占满，还把 logcat 环形缓冲区冲掉，
+    // GodMode 编辑流程的日志一条都留不下来。链路验证只需要前几个样本，够了就摘掉监听。
+    private static final int SAMPLE_CAP = 3;
+    private static final AtomicInteger sDelivered = new AtomicInteger();
+    private static volatile Object sLocationManager;
+
     // 推送链的刺激点：注册一个 listener，逼应用进程跑一遍 requestLocationUpdates -> 容器 -> 监听器。
     // 挑 (String, long, float, LocationListener) 这个全 SDK 都有的公共重载，框架内部自己造
     // LocationRequest，应用代码完全不用碰隐藏类。
     private static final LocationListener mListener = new LocationListener() {
         @Override
         public void onLocationChanged(Location location) {
-            logLocation("delivered", location);
+            if (sDelivered.incrementAndGet() <= SAMPLE_CAP) {
+                logLocation("delivered", location);
+            }
+            stopUpdates();
         }
 
         @Override
@@ -224,10 +235,27 @@ public final class LocationProbeHook {
         }
         try {
             pick.setAccessible(true);
+            sLocationManager = lm;
             pick.invoke(lm, args);
             Logger.d(TAG, SUB_TAG + " forced " + pick.toGenericString());
         } catch (Throwable e) {
+            sLocationManager = null;
             Logger.w(TAG, SUB_TAG + " force requestLocationUpdates fail", e);
+        }
+    }
+
+    // 拿到第一个样本就摘监听，把持续的定位推送断掉。removeUpdates 有多个重载，
+    // callMethod 按实参类型解析，LocationListener 参数的那个就是目标；失败也不影响日志。
+    private static void stopUpdates() {
+        Object lm = sLocationManager;
+        if (lm == null) {
+            return;
+        }
+        sLocationManager = null;
+        try {
+            XposedHelpers.callMethod(lm, "removeUpdates", mListener);
+            Logger.d(TAG, SUB_TAG + " removed updates after cap=" + SAMPLE_CAP);
+        } catch (Throwable ignored) {
         }
     }
     // API 31 把 isFromMockProvider 换成了 isMock，两个都是隐藏/废弃 API，反射调最稳

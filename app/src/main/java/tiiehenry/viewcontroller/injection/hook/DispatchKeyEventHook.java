@@ -149,7 +149,6 @@ public final class DispatchKeyEventHook extends XC_MethodHook implements Propert
         mViewNodes.addAll(ViewHelper.buildViewNodes(container));
         mMaskView = MaskView.makeMaskView(activity);
         mMaskView.setMaskOverlay(OVERLAY_COLOR);
-        mMaskView.attachToContainer(container);
         try {
             LayoutInflater layoutInflater = GmLayoutInflater.from(activity);
             mNodeSelectorPanel = layoutInflater.inflate(R.layout.layout_node_selector, container, false);
@@ -157,7 +156,7 @@ public final class DispatchKeyEventHook extends XC_MethodHook implements Propert
             seekbar.setMax(mViewNodes.size() - 1);
             seekbar.setOnSeekBarChangeListener(this);
             View btnBlock = mNodeSelectorPanel.findViewById(R.id.block);
-            TooltipCompat.setTooltipText(btnBlock, GmResources.getText(activity, R.string.accessibility_block));
+            TooltipCompat.setTooltipText(btnBlock, GmResources.getTextSafe(activity, R.string.accessibility_block));
             btnBlock.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -206,7 +205,7 @@ public final class DispatchKeyEventHook extends XC_MethodHook implements Propert
                     } catch (Exception e) {
                         Logger.e(TAG, "block fail", e);
                         animateShowNodeSelectorPanel();
-                        Toast.makeText(activity, GmResources.getString(activity, R.string.block_fail, e.getMessage()), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(activity, GmResources.getStringSafe(activity, R.string.block_fail, e.getMessage()), Toast.LENGTH_SHORT).show();
                     }
                     return false;
                 }
@@ -248,6 +247,7 @@ public final class DispatchKeyEventHook extends XC_MethodHook implements Propert
                     seekbarreduce();
                 }
             });
+            mMaskView.attachToContainer(container);
             container.addView(mNodeSelectorPanel);
             mNodeSelectorPanel.setAlpha(0);
             mNodeSelectorPanel.post(new Runnable() {
@@ -282,6 +282,13 @@ public final class DispatchKeyEventHook extends XC_MethodHook implements Propert
             //god mode package uninstalled?
             Logger.e(TAG, "showNodeSelectPanel fail", e);
             mKeySelecting = false;
+            // 充气失败时 mask 已经挂在 DecorView 上了：它是 MATCH_PARENT 且 tag=gm_cmp，
+            // 留在上面会永久盖住界面、吞掉所有手势，长按写规则就再也触发不了。摘掉并复位 showing。
+            if (mMaskView != null) {
+                mMaskView.detachFromContainer();
+                mMaskView = null;
+            }
+            showing = false;
         }
     }
 

@@ -46,7 +46,7 @@ import java.util.Locale;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedHelpers;
 
-public final class DispatchKeyEventHook extends XC_MethodHook implements Property.OnPropertyChangeListener<Boolean>, SeekBar.OnSeekBarChangeListener {
+public final class DispatchKeyEventHook implements Property.OnPropertyChangeListener<Boolean>, SeekBar.OnSeekBarChangeListener {
 
     private static final int OVERLAY_COLOR = Color.argb(150, 255, 0, 0);
     private final List<WeakReference<View>> mViewNodes = new ArrayList<>();
@@ -63,6 +63,25 @@ public final class DispatchKeyEventHook extends XC_MethodHook implements Propert
 
     public DispatchKeyEventHook(InjectorImplApps injectorImplApps) {
         this.injectorImplApps = injectorImplApps;
+        // 旧实现在 showNodeSelectPanel 里每次都 findAndHookMethod 一次且从不解挂：
+        // 挂 N 次后一次音量键会让 seekbar 跳 N 格；面板关掉后残留的 hook 还会对所有按键
+        // setResult(true)，back 键之类的物理键全部失效，直到进程死掉。进程级只挂一次。
+        XposedHelpers.findAndHookMethod(Activity.class, "dispatchKeyEvent", KeyEvent.class, new XC_MethodHook() {
+            protected void beforeHookedMethod(MethodHookParam param) {
+                if (!mKeySelecting || !injectorImplApps.editModeProp.get() || DispatchTouchEventHook.mDragging) {
+                    return;
+                }
+                KeyEvent event = (KeyEvent) param.args[0];
+                int action = event.getAction();
+                int keyCode = event.getKeyCode();
+                if (action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                    seekbarreduce();
+                } else if (action == KeyEvent.ACTION_UP && keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                    seekbaradd();
+                }
+                param.setResult(true);
+            }
+        });
     }
 
     public void setActivity(final Activity a) {
@@ -82,31 +101,6 @@ public final class DispatchKeyEventHook extends XC_MethodHook implements Propert
         } else {
             dismissNodeSelectPanel();
         }
-    }
-
-    @Override
-    protected void beforeHookedMethod(MethodHookParam param) {
-        if (injectorImplApps.editModeProp.get() && !DispatchTouchEventHook.mDragging) {
-            Activity activity = (Activity) param.thisObject;
-            KeyEvent event = (KeyEvent) param.args[0];
-            param.setResult(dispatchKeyEvent(activity, event));
-        }
-    }
-
-    private boolean dispatchKeyEvent(final Activity activity, KeyEvent keyEvent) {
-        Logger.d(TAG, keyEvent.toString());
-        int action = keyEvent.getAction();
-        int keyCode = keyEvent.getKeyCode();
-        if (action == KeyEvent.ACTION_UP &&
-                (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
-            if (!mKeySelecting) {
-                showNodeSelectPanel(activity);
-            } else {
-                //hide node select panel
-                dismissNodeSelectPanel();
-            }
-        }
-        return true;
     }
 
     private void showViewDetailDialog(View view) {
@@ -275,21 +269,6 @@ public final class DispatchKeyEventHook extends XC_MethodHook implements Propert
                 }
             });
             mKeySelecting = true;
-            XposedHelpers.findAndHookMethod(Activity.class, "dispatchKeyEvent", KeyEvent.class, new XC_MethodHook() {
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    if (injectorImplApps.editModeProp.get() && !DispatchTouchEventHook.mDragging) {
-                        KeyEvent event = (KeyEvent) param.args[0];
-                        int action = event.getAction();
-                        int keyCode = event.getKeyCode();
-                        if (action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-                            seekbarreduce();
-                        } else if (action == KeyEvent.ACTION_UP && keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-                            seekbaradd();
-                        }
-                        param.setResult(true);
-                    }
-                }
-            });
         } catch (Exception e) {
             //god mode package uninstalled?
             Logger.e(TAG, "showNodeSelectPanel fail", e);

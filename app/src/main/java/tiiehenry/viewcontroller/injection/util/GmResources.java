@@ -128,7 +128,7 @@ public class GmResources {
     }
 
     // 主线程上的控件初始化（CancelView 之类）拿不到资源时不能让 NotFoundException 冒泡出去崩 guest。
-    static CharSequence getTextSafe(Context context, int id) {
+    public static CharSequence getTextSafe(Context context, int id) {
         try {
             return getGmResource(context).getText(id);
         } catch (Throwable ignored) {
@@ -136,7 +136,7 @@ public class GmResources {
         }
     }
 
-    static String getStringSafe(Context context, int id, Object... formatArgs) {
+    public static String getStringSafe(Context context, int id, Object... formatArgs) {
         try {
             return getGmResource(context).getString(id, formatArgs);
         } catch (Throwable ignored) {

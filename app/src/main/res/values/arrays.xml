@@ -35,6 +35,10 @@
     <string-array name="xposed_scope">
         <item>android</item>
         <item>com.wuxianggujun.tax</item>
+        <!-- 把自己加进作用域：沙盒里模块设置界面所在的进程必须被注入才能拿到
+             tina.host.filesdir（见 LocalGodModeManager），否则编辑开关改的是空实现。
+             InjectorImplManager.handleLoadPackage 是空的，注入进来不会 hook 自己的界面。 -->
+        <item>tiiehenry.viewcontroller</item>
     </string-array>
 
 </resources>

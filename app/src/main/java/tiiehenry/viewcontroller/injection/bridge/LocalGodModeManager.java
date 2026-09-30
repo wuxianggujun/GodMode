@@ -26,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import tiiehenry.viewcontroller.IGodModeManager;
 import tiiehenry.viewcontroller.IObserver;
+import tiiehenry.viewcontroller.injection.util.Logger;
 import tiiehenry.viewcontroller.rule.ActRules;
 import tiiehenry.viewcontroller.rule.AppRules;
 import tiiehenry.viewcontroller.rule.ViewRule;
@@ -53,6 +54,7 @@ public final class LocalGodModeManager extends IGodModeManager.Stub {
     private static final String EDIT_MODE_FILE = "editmode";
     private static final String IMAGE_SUFFIX = ".webp";
     private static final int IMAGE_QUALITY = 80;
+    private static final String TAG = "GodMode";
 
     private static volatile LocalGodModeManager sInstance;
 
@@ -579,6 +581,9 @@ public final class LocalGodModeManager extends IGodModeManager.Stub {
             out.putAll(bucketed);
             return true;
         } catch (Throwable e) {
+            // WARN 默认可输出（不用 setprop log.tag.GodMode）。损坏的规则文件会让这个应用
+            // 的规则一条都不加载，用户视角是「面板写的规则重启后全消失」，不吭声的话极难定位。
+            Logger.w(TAG, "parse rules file fail, all rules for this app dropped: " + rulesFile, e);
             return false;
         } finally {
             if (in != null) {

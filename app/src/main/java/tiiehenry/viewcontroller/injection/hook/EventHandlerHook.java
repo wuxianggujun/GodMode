@@ -192,6 +192,15 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
         if (mCancelView != null) {
             mCancelView.detachFromContainer();
         }
+        if (mMaskView == null) {
+            // attach 阶段抛过异常（已在 performAttachMirrorView 记录），mirror 根本没建起来。
+            // CheckForLongPress 无论 attach 成败都把 mLongClick 置 true，所以这里可能进来，
+            // 直接复位返回，不然下面 isMarked() 就是 NPE，砸的是 guest 主线程。
+            mSnapshot = null;
+            mViewRule = null;
+            mCancelView = null;
+            return;
+        }
         if (mMaskView.isMarked()) {
             //丢弃该条规则
             try {
@@ -244,6 +253,10 @@ public final class EventHandlerHook extends XC_MethodHook implements Property.On
             });
             particleView.boom(mMaskView);
         }
+    }
+
+    public boolean isDragging() {
+        return mDragging;
     }
 
     public void exchangeEditMode() {

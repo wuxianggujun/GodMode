@@ -68,7 +68,7 @@ public final class DispatchKeyEventHook implements Property.OnPropertyChangeList
         // setResult(true)，back 键之类的物理键全部失效，直到进程死掉。进程级只挂一次。
         XposedHelpers.findAndHookMethod(Activity.class, "dispatchKeyEvent", KeyEvent.class, new XC_MethodHook() {
             protected void beforeHookedMethod(MethodHookParam param) {
-                if (!mKeySelecting || !injectorImplApps.editModeProp.get() || DispatchTouchEventHook.mDragging) {
+                if (!mKeySelecting || !injectorImplApps.editModeProp.get() || eventHandlerHook.isDragging()) {
                     return;
                 }
                 KeyEvent event = (KeyEvent) param.args[0];

@@ -32,6 +32,7 @@ public final class CancelView extends View {
     private final Rect statusBarBounds = new Rect();
     private final Rect textLayoutBounds = new Rect();
     private final Rect textBounds = new Rect();
+    private int actionBarHeight;
 
     public CancelView(Context context) {
         this(context, null);
@@ -63,14 +64,20 @@ public final class CancelView extends View {
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
         setLayoutParams(lp);
+        // 撤销条的高度依赖主题的 actionBarSize，但 Theme.DeviceDefault 一类主题不声明它，
+        // resolveAttribute 返回 false 时旧代码让 textLayoutBounds 永远保持 (0,0,0,0)——
+        // 绿条退化成一条 8px 的状态栏细线，marked 判定区跟着塌缩，用户压根拖不进去，
+        // 松手只会走写规则分支。这里在构造期一次解析，解不出来回退 48dp 保底。
+        actionBarHeight = resolveActionBarHeight(context);
     }
 
-    public int getStatusBarHeight() {
-        int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        if (resourceId > 0) {
-            return getResources().getDimensionPixelSize(resourceId);
+    private static int resolveActionBarHeight(Context context) {
+        TypedValue tv = new TypedValue();
+        if (context.getTheme().resolveAttribute(android.R.attr.actionBarSize, tv, true)) {
+            return TypedValue.complexToDimensionPixelSize(tv.data, context.getResources().getDisplayMetrics());
         }
-        return 0;
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 48f,
+                context.getResources().getDisplayMetrics());
     }
 
     public void attachToContainer(ViewGroup container) {
@@ -85,9 +92,9 @@ public final class CancelView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         canvas.save();
+        ensureBounds();
         //draw status bar rect
-        canvas.drawRect(getStatusBarBounds(), rectPaint);
-        Rect textLayoutBounds = getTextLayoutBounds();
+        canvas.drawRect(statusBarBounds, rectPaint);
         canvas.drawRect(textLayoutBounds, rectPaint);
 
         //draw text
@@ -97,24 +104,32 @@ public final class CancelView extends View {
         canvas.restore();
     }
 
-    private Rect getStatusBarBounds() {
-        if (statusBarBounds.isEmpty())
-            statusBarBounds.set(getLeft(), 0, getRight(), getStatusBarHeight());
-        return statusBarBounds;
+    /**
+     * 计算撤销条的区域。原实现把这段初始化放在 onDraw 里且getRealBounds 直接读字段，
+     * attach 之后第一帧还没绘制时命中区是 (0,0,0,0)，手势判定恒为 false。
+     * 提到外部并在 getRealBounds 前也调一次，保证查到的是算过的值。
+     */
+    private void ensureBounds() {
+        if (!statusBarBounds.isEmpty() && !textLayoutBounds.isEmpty()) {
+            return;
+        }
+        int right = getWidth() > 0 ? getWidth()
+                : getContext().getResources().getDisplayMetrics().widthPixels;
+        int statusBarHeight = getStatusBarHeight();
+        statusBarBounds.set(0, 0, right, statusBarHeight);
+        textLayoutBounds.set(0, statusBarHeight, right, statusBarHeight + actionBarHeight);
     }
 
-    private Rect getTextLayoutBounds() {
-        if (textLayoutBounds.isEmpty()) {
-            TypedValue tv = new TypedValue();
-            if (getContext().getTheme().resolveAttribute(android.R.attr.actionBarSize, tv, true)) {
-                int actionBarHeight = TypedValue.complexToDimensionPixelSize(tv.data, getResources().getDisplayMetrics());
-                textLayoutBounds.set(getLeft(), getStatusBarHeight(), getRight(), getStatusBarHeight() + actionBarHeight);
-            }
+    private int getStatusBarHeight() {
+        int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        if (resourceId > 0) {
+            return getResources().getDimensionPixelSize(resourceId);
         }
-        return textLayoutBounds;
+        return 0;
     }
 
     public Rect getRealBounds() {
+        ensureBounds();
         return new Rect(statusBarBounds.left, statusBarBounds.top, statusBarBounds.right, textLayoutBounds.bottom);
     }
 }

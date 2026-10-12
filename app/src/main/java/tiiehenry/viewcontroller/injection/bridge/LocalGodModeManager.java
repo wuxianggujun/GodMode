@@ -39,8 +39,8 @@ import tiiehenry.viewcontroller.rule.ViewRule;
  * clipboard binder 从未被包装，XServiceManager.getService("godmode") 永远返回 null。
  * 于是这里改走文件：规则存成和 RuleExporter 一模一样的 manifest.json（ViewRule 数组）
  * 放在 <宿主 filesDir>/tina_godmode/<包名>.json，沙盒进程和宿主同 uid，直接可读可写。
- * 路径由 SandXposed 注入前写入 tina.host.filesdir 系统属性传进来；属性不存在说明不在
- * 我们的沙盒里（独立安装的 GodMode），load 返回 null 让调用方退回原来的 binder 路径。
+ * 路径由容器的 ModuleStorageBridge 按当前模块作用域提供；不读取全局系统属性。
+ * 独立安装时没有容器桥，load 返回 null 让调用方使用模块自己的 binder 服务。
  *
  * 实例不绑包名：所有读写方法的第一个参数就是 packageName，按参数定位文件即可。
  * 这样 GodModeManager 那个全局 singleton 在多分身共用一个宿主进程时也不会串包——
@@ -48,7 +48,6 @@ import tiiehenry.viewcontroller.rule.ViewRule;
  */
 public final class LocalGodModeManager extends IGodModeManager.Stub {
 
-    private static final String DIR_NAME = "tina_godmode";
     private static final String RULES_SUFFIX = ".json";
     private static final String DISABLED_SUFFIX = ".disabled";
     private static final String EDIT_MODE_FILE = "editmode";
@@ -61,28 +60,20 @@ public final class LocalGodModeManager extends IGodModeManager.Stub {
     private final File baseDir;
     private final Map<String, List<IObserver>> observers = new ConcurrentHashMap<>();
 
-    private LocalGodModeManager(File hostFilesDir) {
-        this.baseDir = new File(hostFilesDir, DIR_NAME);
+    private LocalGodModeManager(File rulesDirectory) {
+        this.baseDir = rulesDirectory;
     }
 
     /**
-     * 不在沙盒里（tina.host.filesdir 缺失）返回 null，调用方退回 Default()。
-     * 包名参数保留给老调用方（GodModeManager.getDefault(pkg)），实例本身不认包名。
+     * 桥不可用或模块未获当前作用域授权时返回 null。规则目录保持当前布局。
      */
     @Nullable
-    public static LocalGodModeManager load(@Nullable String packageName) {
-        if (sInstance != null) {
-            return sInstance;
-        }
-        String hostFilesDir = System.getProperty("tina.host.filesdir");
-        android.util.Log.d("GodMode", "LocalGM load pkg=" + packageName
-                + " filesdir=" + hostFilesDir + " (null means not in sandbox)");
-        if (TextUtils.isEmpty(hostFilesDir)) {
-            return null;
-        }
+    public static LocalGodModeManager load() {
+        File rulesDirectory = ContainerRuleStorage.resolve();
+        if (rulesDirectory == null) return null;
         synchronized (LocalGodModeManager.class) {
-            if (sInstance == null) {
-                sInstance = new LocalGodModeManager(new File(hostFilesDir));
+            if (sInstance == null || !sInstance.baseDir.equals(rulesDirectory)) {
+                sInstance = new LocalGodModeManager(rulesDirectory);
             }
             return sInstance;
         }

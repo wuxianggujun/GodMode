@@ -28,20 +28,16 @@ public final class GodModeManager {
     }
 
     /**
-     * @param packageName 目标应用包名。在沙盒里 binder 中继不可用（见 LocalGodModeManager），
-     *                    靠包名去宿主文件里读本地规则；传 null 只走系统服务路径。
+     * @param packageName 目标应用包名；服务优先通过 Binder 获取，否则使用授权的容器规则目录。
      */
     public static GodModeManager getDefault(@Nullable String packageName) {
         synchronized (GodModeManager.class) {
             if (instance == null) {
                 IBinder service = XServiceManager.getService("godmode");
-                android.util.Log.d("GodMode", "getDefault pkg=" + packageName
-                        + " xservice=" + service);
                 if (service != null) {
                     instance = new GodModeManager(IGodModeManager.Stub.asInterface(service));
                 } else {
-                    LocalGodModeManager local = LocalGodModeManager.load(packageName);
-                    android.util.Log.d("GodMode", "getDefault local=" + local);
+                    LocalGodModeManager local = LocalGodModeManager.load();
                     instance = new GodModeManager(local != null ? local : new IGodModeManager.Default());
                 }
             }

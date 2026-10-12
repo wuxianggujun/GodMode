@@ -24,9 +24,7 @@ public class GmLayoutInflater implements LayoutInflater.Factory2 {
         try {
             gmContext = context.createPackageContext(BuildConfig.APPLICATION_ID, 0);
         } catch (PackageManager.NameNotFoundException e) {
-            // 沙盒里模块不是已安装的虚拟包，createPackageContext 必失败（原因同 GmResources）。
-            // 模块的资源和类都在自己那份 APK 里：套一层 ContextWrapper 把 getResources()/getClassLoader()
-            // 指到模块那份，inflater 就能充气模块布局。
+            // 模块包在当前 Context 中不可见时，用模块自己的资源和类加载器解析布局。
             final Context base = context;
             gmContext = new ContextWrapper(base) {
                 private Theme mTheme;

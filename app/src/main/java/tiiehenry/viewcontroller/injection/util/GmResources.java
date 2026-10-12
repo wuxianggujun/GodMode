@@ -12,8 +12,6 @@ import android.util.DisplayMetrics;
 import dalvik.system.BaseDexClassLoader;
 import de.robv.android.xposed.XposedHelpers;
 
-import java.io.File;
-
 import tiiehenry.viewcontroller.BuildConfig;
 
 public class GmResources {
@@ -25,9 +23,7 @@ public class GmResources {
             try {
                 GMResources = context.createPackageContext(BuildConfig.APPLICATION_ID, 0).getResources();
             } catch (PackageManager.NameNotFoundException e) {
-                // 沙盒里模块不是「已安装的虚拟包」，createPackageContext 必然失败，长按必然崩 guest。
-                // 但模块的类已经被 SandXposed 从模块自己的 APK 里加载进来了，顺着 classloader 把那个
-                // APK 路径挖出来，用 AssetManager.addAssetPath 重建一份 Resources，绕开 PackageManager。
+                // 模块包在当前 Context 中不可见时，使用模块自身 ClassLoader 的 APK 资源。
                 String apkPath = findModuleApkPath();
                 if (apkPath == null) {
                     throw e;
@@ -57,31 +53,6 @@ public class GmResources {
                 if (name != null && name.endsWith(".apk")) {
                     return name;
                 }
-            }
-        } catch (Throwable ignored) {
-        }
-        return null;
-    }
-
-    // findModuleApkPath 挖出来的路径在旧构建上可能是反检测伪装路径（/data/app/<pkg>-base64/base.apk），
-    // 那个目录根本不存在。优先用能打开的那一份：先看 classloader 里的路径在不在，不在就问引擎要真实路径。
-    private static String findUsableModuleApkPath() {
-        String fromClassLoader = findModuleApkPath();
-        if (fromClassLoader != null && new File(fromClassLoader).exists()) {
-            return fromClassLoader;
-        }
-        return getEngineModuleApkPath();
-    }
-
-    // VEnvironment.getPackageFile(pkg) 是引擎里「包名 → 真实 APK」的权威映射（virtual/data/app/<pkg>/base.apk）。
-    // godmode 编译期看不到 commonSdk，但模块类在 guest 进程里由宿主 classloader 加载，运行期反射即可。
-    private static String getEngineModuleApkPath() {
-        try {
-            Class<?> vEnv = XposedHelpers.findClass(
-                    "com.lody.virtual.os.VEnvironment", GmResources.class.getClassLoader());
-            File apkFile = (File) XposedHelpers.callStaticMethod(vEnv, "getPackageFile", BuildConfig.APPLICATION_ID);
-            if (apkFile != null && apkFile.exists()) {
-                return apkFile.getPath();
             }
         } catch (Throwable ignored) {
         }

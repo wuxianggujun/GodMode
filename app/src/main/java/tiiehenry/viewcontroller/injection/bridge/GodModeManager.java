@@ -5,7 +5,7 @@ import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 
-import androidx.annotation.Nullable;
+import android.util.Log;
 
 import tiiehenry.viewcontroller.IGodModeManager;
 import tiiehenry.viewcontroller.IObserver;
@@ -16,171 +16,168 @@ import com.kaisar.xservicemanager.XServiceManager;
 
 public final class GodModeManager {
 
-    private static GodModeManager instance;
-    private final IGodModeManager mGMM;
+    private static final String TAG = "GodModeManager";
+    private static final GodModeManager INSTANCE = new GodModeManager();
+    private IGodModeManager service;
 
-    private GodModeManager(IGodModeManager gmm) {
-        this.mGMM = gmm;
-    }
+    private GodModeManager() { }
 
     public static GodModeManager getDefault() {
-        return getDefault(null);
+        return INSTANCE;
     }
 
-    /**
-     * @param packageName 目标应用包名；服务优先通过 Binder 获取，否则使用授权的容器规则目录。
-     */
-    public static GodModeManager getDefault(@Nullable String packageName) {
-        synchronized (GodModeManager.class) {
-            if (instance == null) {
-                IBinder service = XServiceManager.getService("godmode");
-                if (service != null) {
-                    instance = new GodModeManager(IGodModeManager.Stub.asInterface(service));
-                } else {
-                    LocalGodModeManager local = LocalGodModeManager.load();
-                    instance = new GodModeManager(local != null ? local : new IGodModeManager.Default());
-                }
+    /** A missing or dead Binder is retried on the next call; rules only live in the module service. */
+    private synchronized IGodModeManager requireService() throws RemoteException {
+        if (service == null || !service.asBinder().isBinderAlive()) {
+            IBinder binder = XServiceManager.getService("godmode");
+            if (binder == null || !binder.isBinderAlive()) {
+                service = null;
+                throw new RemoteException("GodMode Binder service unavailable");
             }
-            return instance;
+            service = IGodModeManager.Stub.asInterface(binder);
         }
+        return service;
     }
 
     public void setEditMode(boolean enable) {
         try {
-            mGMM.setEditMode(enable);
+            requireService().setEditMode(enable);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "setEditMode failed", e);
         }
     }
 
     public boolean isInEditMode() {
         try {
-            return mGMM.isInEditMode();
+            return requireService().isInEditMode();
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "isInEditMode failed", e);
             return false;
         }
     }
 
     public void addObserver(String packageName, IObserver observer) {
         try {
-            mGMM.addObserver(packageName, observer);
+            requireService().addObserver(packageName, observer);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "addObserver failed", e);
         }
     }
 
     public void removeObserver(String packageName, IObserver observer) {
         try {
-            mGMM.removeObserver(packageName, observer);
+            requireService().removeObserver(packageName, observer);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "removeObserver failed", e);
         }
     }
 
     public AppRules getAllRules() {
         try {
-            return mGMM.getAllRules();
+            AppRules rules = requireService().getAllRules();
+            return rules != null ? rules : new AppRules();
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "getAllRules failed", e);
             return new AppRules();
         }
     }
 
     public ActRules getRules(String packageName) {
         try {
-            return mGMM.getRules(packageName);
+            ActRules rules = requireService().getRules(packageName);
+            return rules != null ? rules : new ActRules();
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "getRules failed", e);
             return new ActRules();
         }
     }
 
     public boolean  writeAllRule(String packageName, ActRules actRules) {
         try {
-            return mGMM.writeAllRule(packageName,actRules);
+            return requireService().writeAllRule(packageName,actRules);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "writeAllRule failed", e);
             return false;
         }
     }
 
     public boolean writeRule(String packageName, ViewRule viewRule, Bitmap bitmap) {
         try {
-            return mGMM.writeRule(packageName, viewRule, bitmap);
+            return requireService().writeRule(packageName, viewRule, bitmap);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "writeRule failed", e);
             return false;
         }
     }
 
     public boolean updateRule(String packageName, ViewRule viewRule) {
         try {
-            return mGMM.updateRule(packageName, viewRule);
+            return requireService().updateRule(packageName, viewRule);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "updateRule failed", e);
             return false;
         }
     }
 
     public boolean deleteRule(String packageName, ViewRule viewRule) {
         try {
-            return mGMM.deleteRule(packageName, viewRule);
+            return requireService().deleteRule(packageName, viewRule);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "deleteRule failed", e);
             return false;
         }
     }
 
     public boolean deleteRules(String packageName) {
         try {
-            return mGMM.deleteRules(packageName);
+            return requireService().deleteRules(packageName);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "deleteRules failed", e);
             return false;
         }
     }
 
     public void setAppEnable(String packageName, boolean enable) {
         try {
-            mGMM.setAppEnable(packageName, enable);
+            requireService().setAppEnable(packageName, enable);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "setAppEnable failed", e);
         }
     }
 
     public String[] getDisabledApps() {
         try {
-            return mGMM.getDisabledApps();
+            String[] packages = requireService().getDisabledApps();
+            return packages != null ? packages : new String[0];
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "getDisabledApps failed", e);
             return new String[]{};
         }
     }
 
     public boolean isAppDisabled(String packageName) {
         try {
-            return mGMM.isAppDisabled(packageName);
+            return requireService().isAppDisabled(packageName);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "isAppDisabled failed", e);
             return false;
         }
     }
 
     public ParcelFileDescriptor openImageFileDescriptor(String filePath) {
         try {
-            return mGMM.openImageFileDescriptor(filePath);
+            return requireService().openImageFileDescriptor(filePath);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "openImageFileDescriptor failed", e);
             return null;
         }
     }
 
     public void writeBitmap(String packageName, String imagePath, Bitmap bitmap) {
         try {
-            mGMM.writeBitmap(packageName,imagePath,bitmap);
+            requireService().writeBitmap(packageName,imagePath,bitmap);
         } catch (RemoteException e) {
-            e.printStackTrace();
+            Log.w(TAG, "writeBitmap failed", e);
         }
     }
 }

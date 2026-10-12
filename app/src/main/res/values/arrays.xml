@@ -35,9 +35,7 @@
     <string-array name="xposed_scope">
         <item>android</item>
         <item>com.wuxianggujun.tax</item>
-        <!-- 把自己加进作用域：沙盒里模块设置界面所在的进程必须被注入才能拿到
-             ModuleStorageBridge（见 LocalGodModeManager）的规则目录授权。
-             InjectorImplManager.handleLoadPackage 是空的，注入进来不会 hook 自己的界面。 -->
+        <!-- 模块设置与目标应用通过同一个 Binder 规则服务通信。 -->
         <item>tiiehenry.viewcontroller</item>
     </string-array>
 

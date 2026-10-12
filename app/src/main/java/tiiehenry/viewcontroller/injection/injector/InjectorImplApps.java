@@ -138,7 +138,7 @@ public class InjectorImplApps extends InjectorImpl {
 
     @Override
     public void handleLoadPackage() {
-        GodModeManager gmManager = GodModeManager.getDefault(getPackageName());
+        GodModeManager gmManager = GodModeManager.getDefault();
         tiiehenry.viewcontroller.rule.ActRules actRules = gmManager.getRules(getPackageName());
         android.util.Log.d("GodMode", "handleLoadPackage pkg=" + getPackageName()
                 + " editMode=" + gmManager.isInEditMode()
